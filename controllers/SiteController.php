@@ -9,6 +9,7 @@ use yii\filters\AccessControl;
 use yii\web\Controller;
 use yii\web\Response;
 use yii\filters\VerbFilter;
+use yii\web\NotFoundHttpException;
 
 class SiteController extends Controller
 {
@@ -73,6 +74,7 @@ class SiteController extends Controller
      *
      * @param string $currency
      * @return string
+     * @throws NotFoundHttpException
      */
     public function actionIndex($currency='rub')
     {
@@ -88,7 +90,11 @@ class SiteController extends Controller
         {
             $data = $this->getCoordinateRUB($data);
         }
-        else{
+        else if (!in_array($currency, self::$valute))
+        {
+            throw new NotFoundHttpException('The requested page does not exist.',404);
+        }
+        else {
             $data = $this->getCoordinateOther($data,$currency);
         }
 
@@ -113,7 +119,8 @@ class SiteController extends Controller
            $data = json_decode(file_get_contents('https://www.cbr-xml-daily.ru/daily_json.js'));
 
            foreach ($data->Valute as $key => $value){
-               if (in_array($key, self::$valute)){
+               if (in_array($key, self::$valute))
+               {
                    $value->Value = $value->Value/$value->Nominal;
                    $result[$key] = $value;
                }
@@ -146,7 +153,7 @@ class SiteController extends Controller
                 continue;
             }
 
-            $value->Value = round($value->Value/$data[$currency]->Value, 4);
+            $value->Value = $this->getRound($value->Value/$data[$currency]->Value);
             $result[] = $value;
         }
 
@@ -154,7 +161,7 @@ class SiteController extends Controller
             'NumCode' => 643,
             'CharCode' => 'RUB',
             'Name' => 'Российский рубль',
-            'Value' => round(1/$data[$currency]->Value,4)
+            'Value' => $this->getRound(1/$data[$currency]->Value)
         ];
 
         $result[] = (object)$rub;
@@ -206,7 +213,7 @@ class SiteController extends Controller
                         $model = new Currency();
                         $model->date = $date;
                         $model->valute = $key;
-                        $model->value = round($value->Value/$value->Nominal,4);
+                        $model->value = $this->getRound($value->Value/$value->Nominal);
                         $model->save();
                     }
                 }
@@ -263,7 +270,7 @@ class SiteController extends Controller
 
                 if ($value === $item->valute)
                 {
-                    $resultXY['currency'][$value]['course'][] = round($item->value/$course[$item->date],4);
+                    $resultXY['currency'][$value]['course'][] = $this->getRound($item->value/$course[$item->date]);
                     $resultXY['labels'][] = (int)substr($item->date,8);
                 }
 
@@ -273,7 +280,7 @@ class SiteController extends Controller
         }
 
         foreach ($course as $key => $value){
-            $resultXY['currency']['RUB']['course'][] = round(1/$value,4);
+            $resultXY['currency']['RUB']['course'][] = $this->getRound(1/$value);
         }
 
         $resultXY['currency']['RUB']['label'] = self::$valuteChar['RUB'];
@@ -282,5 +289,10 @@ class SiteController extends Controller
         $resultXY['labels'] = array_unique($resultXY['labels']);
 
         return $resultXY;
+    }
+
+    public function getRound($value, $precision = 4)
+    {
+        return round($value,$precision);
     }
 }
