@@ -2,35 +2,14 @@
 
 namespace app\controllers;
 
-use app\models\Currency;
-use phpDocumentor\Reflection\Types\Object_;
 use Yii;
 use yii\filters\AccessControl;
 use yii\web\Controller;
-use yii\web\Response;
 use yii\filters\VerbFilter;
 use yii\web\NotFoundHttpException;
 
 class SiteController extends Controller
 {
-    public static $valute = ['USD', 'EUR', 'CNY', 'JPY'];
-
-    public static $valuteChar = [
-        'USD' => 'Доллар США',
-        'EUR' => 'Евро',
-        'CNY' => 'Китайский юань',
-        'JPY' => 'Японских иен',
-        'RUB' => 'Российский рубль'
-    ];
-
-    public static $valuteColor = [
-        'USD' => 'Red',
-        'EUR' => 'Yellow',
-        'CNY' => 'Blue',
-        'JPY' => 'Fuchsia',
-        'RUB' => 'Black'
-    ];
-
     /**
      * {@inheritdoc}
      */
@@ -80,219 +59,30 @@ class SiteController extends Controller
     {
         $currency = strtoupper($currency);
 
-        if (!$data = $this->getDailyDB())
+        $component = Yii::$app->currency;
+
+        if (!$data = $component->getDailyDB())
         {
-            $this->saveDailyDB();
-            $data = $this->getDailyDB();
+            $component->saveDailyDB();
+            $data = $component->getDailyDB();
         }
 
-        if ($currency === 'RUB')
+        if ($currency === $component->rubCode)
         {
-            $data = $this->getCoordinateRUB($data);
+            $data = $component->getCoordinateRUB($data);
         }
-        else if (!in_array($currency, self::$valute))
+        else if (!in_array($currency, $component->currencyList))
         {
             throw new NotFoundHttpException('The requested page does not exist.',404);
         }
         else {
-            $data = $this->getCoordinateOther($data,$currency);
+            $data = $component->getCoordinateOther($data,$currency);
         }
 
         return $this->render('index', [
-            'currency' => $this->getDaily($currency),
+            'currency' => $component->getDaily($currency),
             'data' => $data,
-            'valuteChar' => self::$valuteChar
+            'valuteChar' => $component->charList
         ]);
-    }
-
-    /**
-     * Получение ежедневного курса
-     *
-     * @return array
-     */
-    public function getXmlDailyRU()
-    {
-       return Yii::$app->cache->getOrSet('xml-daily', function () {
-
-           $result = [];
-
-           $data = json_decode(file_get_contents('https://www.cbr-xml-daily.ru/daily_json.js'));
-
-           foreach ($data->Valute as $key => $value){
-               if (in_array($key, self::$valute))
-               {
-                   $value->Value = $value->Value/$value->Nominal;
-                   $result[$key] = $value;
-               }
-           }
-
-           return $result;
-           },3600);
-    }
-
-    /**
-     * Расчет ежедневного курса
-     *
-     * @param string $currency
-     * @return array
-     */
-    public function getDaily($currency='RUB')
-    {
-        $data = $this->getXmlDailyRU();
-
-        if ($currency === 'RUB')
-        {
-            return $data;
-        }
-
-        $result = [];
-
-        foreach ($data as $key => $value){
-
-            if ($currency === $key){
-                continue;
-            }
-
-            $value->Value = $this->getRound($value->Value/$data[$currency]->Value);
-            $result[] = $value;
-        }
-
-        $rub = [
-            'NumCode' => 643,
-            'CharCode' => 'RUB',
-            'Name' => 'Российский рубль',
-            'Value' => $this->getRound(1/$data[$currency]->Value)
-        ];
-
-        $result[] = (object)$rub;
-
-        return $result;
-    }
-
-    /**
-     * Получение статистики за прошлый месяц из базы данных
-     *
-     * @return array
-     */
-    public function getDailyDB()
-    {
-        $maxDay = date('t', mktime(0, 0, 0, date('m') - 1));
-
-        return Currency::find()
-            ->where(['between',
-                'date',
-                date('Y-m-d', mktime(0, 0, 0, date('m') - 1, 1)),
-                date('Y-m-d', mktime(0, 0, 0, date('m') - 1, $maxDay))
-            ])
-            ->orderBy(['date' => SORT_ASC])
-            ->all();
-    }
-
-    /**
-     * Запись статистики за прошлый месяц в базу данных
-     *
-     * @return void
-     */
-    public function saveDailyDB()
-    {
-        $maxDay = date('t', mktime(0, 0, 0, date('m') - 1));
-
-        for ($i = 1; $i <= $maxDay ; $i++) {
-
-            $date = date('Y-m-d', mktime(0, 0, 0, date('m') - 1, $i));
-            $dateArchive = date('Y/m/d', mktime(0, 0, 0, date('m') - 1, $i));
-
-            if ($data = @file_get_contents('https://www.cbr-xml-daily.ru/archive/'.$dateArchive.'/daily_json.js'))
-            {
-                $data = json_decode($data);
-
-                foreach ($data->Valute as $key => $value){
-
-                    if (in_array($key, self::$valute))
-                    {
-                        $model = new Currency();
-                        $model->date = $date;
-                        $model->valute = $key;
-                        $model->value = $this->getRound($value->Value/$value->Nominal);
-                        $model->save();
-                    }
-                }
-            }
-        }
-    }
-
-    public function getCoordinateRUB($data)
-    {
-        $resultXY = [];
-
-        foreach (self::$valute as $value){
-
-            foreach ($data as $item){
-
-                if ($value === $item->valute)
-                {
-                    $resultXY['currency'][$value]['course'][] = $item->value;
-                    $resultXY['labels'][] = (int)substr($item->date,8);
-                }
-
-                $resultXY['currency'][$value]['label'] = self::$valuteChar[$value];
-                $resultXY['currency'][$value]['color'] = self::$valuteColor[$value];
-            }
-        }
-
-        $resultXY['labels'] = array_unique($resultXY['labels']);
-
-        return $resultXY;
-    }
-
-    public function getCoordinateOther($data, $currency)
-    {
-        $course = [];
-
-        foreach ($data as $value){
-
-            if ($currency === $value->valute)
-            {
-               $course[$value->date] = $value->value;
-            }
-        }
-
-        $resultXY = [];
-
-        foreach (self::$valute as $value){
-
-            if ($currency === $value)
-            {
-                continue;
-            }
-
-            foreach ($data as $item){
-
-                if ($value === $item->valute)
-                {
-                    $resultXY['currency'][$value]['course'][] = $this->getRound($item->value/$course[$item->date]);
-                    $resultXY['labels'][] = (int)substr($item->date,8);
-                }
-
-                $resultXY['currency'][$value]['label'] = self::$valuteChar[$value];
-                $resultXY['currency'][$value]['color'] = self::$valuteColor[$value];
-            }
-        }
-
-        foreach ($course as $key => $value){
-            $resultXY['currency']['RUB']['course'][] = $this->getRound(1/$value);
-        }
-
-        $resultXY['currency']['RUB']['label'] = self::$valuteChar['RUB'];
-        $resultXY['currency']['RUB']['color'] = self::$valuteColor['RUB'];
-
-        $resultXY['labels'] = array_unique($resultXY['labels']);
-
-        return $resultXY;
-    }
-
-    public function getRound($value, $precision = 4)
-    {
-        return round($value,$precision);
     }
 }
