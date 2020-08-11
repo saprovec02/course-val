@@ -160,6 +160,12 @@ class Currency extends Component
         }
     }
 
+    /**
+     * Сборка координат для графика курса рубля
+     *
+     * @param $data
+     * @return array
+     */
     public function getCoordinateRUB($data)
     {
         $resultXY = [];
@@ -185,7 +191,7 @@ class Currency extends Component
     }
 
     /**
-     * Сборка координат для графика курса рубля
+     * Сборка координат для графика курса валют
      *
      * @param $data
      * @param $currency
