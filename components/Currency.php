@@ -184,6 +184,13 @@ class Currency extends Component
         return $resultXY;
     }
 
+    /**
+     * Сборка координат для графика курса рубля
+     *
+     * @param $data
+     * @param $currency
+     * @return array
+     */
     public function getCoordinateOther($data, $currency)
     {
         $course = [];
